@@ -1,19 +1,22 @@
-name: firmware
+name: firmware-module
 on:
- # schedule:
-    # 01:15 PST / Nightly
-    #- cron:  '15 8 * * *'
+  #schedule:
+    # 02:15 PST / Nightly
+    #- cron:  '15 9 * * *'
   workflow_dispatch:
-   
-      
+    
+     
 
 env:
-  TAG_NAME: firmware
-  UPD_TAG_NAME: firmware_update
-  SHA256_TAG_NAME: verify
+  TAG_NAME: module
+  UPD_TAG_NAME: module_update
+  SHA256_TAG_NAME: verify_module
   TERM: linux
   BR2_DL_DIR: ~/dl
-  
+  TG_TOKEN: ${{secrets.TELEGRAM_TOKEN_BOT_THINGINO}}
+  TG_CHANNEL: ${{secrets.TELEGRAM_CHANNEL_THINGINO_BUILD}}
+  TG_CHANNEL_SCRATCH: ${{secrets.TELEGRAM_CHANNEL_THINGINO_SCRATCH}}
+  TG_OPTIONS: -s
 
 jobs:
   notify-begin:
@@ -30,19 +33,17 @@ jobs:
         run: |
           echo "TG_DISABLED=${{ github.event.inputs.tg_disabled || 'false' }}" >> $GITHUB_ENV
           echo "tg_disabled=${{ github.event.inputs.tg_disabled || 'false' }}" >> $GITHUB_OUTPUT
-
       - name: Send build start notifcation
         if: env.TG_DISABLED == 'false'
         run: |
           if [[ "${{ github.event.inputs.tg_scratch }}" == 'true' ]]; then
             TG_CHANNEL=${{ env.TG_CHANNEL_SCRATCH }}
           fi
-          TG_MSG="Firmware build started:\nJob: [${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})\n\n"
+          TG_MSG="Firmware\\-module build started:\nJob: [${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})\n\n"
           TG_ICON="\xF0\x9F\x9A\xA6 GitHub Actions"
           TG_HEADER=$(echo -e ${TG_MSG}${TG_ICON})
           HTTP=$(curl ${TG_OPTIONS} -H "Content-Type: multipart/form-data" -X POST https://api.telegram.org/bot${TG_TOKEN}/sendMessage -F parse_mode=MarkdownV2 -F chat_id=${TG_CHANNEL} -F text="${TG_HEADER}" -F disable_web_page_preview=true)
           echo Telegram response: ${HTTP}
-
   generate-matrix:
     runs-on: ubuntu-latest
     outputs:
@@ -61,9 +62,9 @@ jobs:
         id: set-matrix
         run: |
           if [[ "${{ github.event.inputs.teacup_only }}" == 'true' ]]; then
-            CONFIGS=$(find configs/cameras/ -type f | sort | awk -F '/' '{print $(NF)}' | awk NF | grep 'teacup')
+            CONFIGS=$(find configs/modules/ -type f | sort | awk -F '/' '{print $(NF)}' | awk NF | grep 't31zx_imx327_eth')
           else
-            CONFIGS=$(find configs/cameras/ -type f | sort | awk -F '/' '{print $(NF)}' | awk NF)
+            CONFIGS=$(find configs/modules/ -type f | sort | awk -F '/' '{print $(NF)}' | awk NF)
           fi
           JSON_MATRIX="{\"thingino-version\": ["
           for CONFIG in $CONFIGS; do
@@ -72,7 +73,6 @@ jobs:
           JSON_MATRIX="${JSON_MATRIX%,}]}"
           echo "Matrix: $JSON_MATRIX"
           echo "matrix=$JSON_MATRIX" >> $GITHUB_OUTPUT
-
   buildroot:
     name: ${{ matrix.thingino-version }}
     needs: [generate-matrix, notify-begin]
@@ -90,11 +90,9 @@ jobs:
       - name: Update APT sources
         run: |
           apt-get update
-
       - name: Install build dependencies
         run: |
-          apt-get install -y --no-install-recommends --no-install-suggests build-essential bc cmake cpio curl ca-certificates file git make gawk procps rsync u-boot-tools unzip wget
-
+          apt-get install -y --no-install-recommends --no-install-suggests build-essential bc ccache cmake cpio curl ca-certificates file git make gawk procps rsync u-boot-tools unzip wget
       - name: Setup gh workspace in container
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
@@ -115,12 +113,10 @@ jobs:
           echo "GIT_HASH=${GIT_HASH}" >> ${GITHUB_ENV}
           echo "GIT_BRANCH=${GIT_BRANCH}" >> ${GITHUB_ENV}
           echo "TG_DISABLED=${{ github.event.inputs.tg_disabled || 'false' }}" >> $GITHUB_ENV
-
       - name: Setup cache directories
         run: |
           mkdir -p ~/.ccache
           mkdir -p ~/dl
-
       - name: Restore build cache
         uses: actions/cache@v4
         if: always()
@@ -130,7 +126,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-ccache-${{ matrix.thingino-version }}-${{ env.CURRENT_YEAR }}-week-
             ${{ runner.os }}-ccache-shared-v1-${{ env.CURRENT_YEAR }}-week-${{ env.WEEK_NUMBER }}
-
       - name: Restore Buildroot DL cache
         uses: actions/cache/restore@v4
         if: always()
@@ -143,13 +138,11 @@ jobs:
           BOARD=${{ matrix.thingino-version }} make
           TIME=$(date -d @${SECONDS} +%M:%S)
           echo "TIME=${TIME}" >> ${GITHUB_ENV}
-
       - name: Generate build graphs
         if: ${{ github.event.inputs.graph_enabled == 'true' }}
         run: |
           apt-get install -y --no-install-recommends --no-install-suggests python3-numpy python3-matplotlib
           BOARD=${{ matrix.thingino-version }} make br-graph-build
-
       - name: Find built firmware images
         run: |
           DYNAMIC_PART="${{ matrix.thingino-version }}"
@@ -166,7 +159,6 @@ jobs:
             echo "Matching .bin files not found."
             exit 1
           fi
-
       - name: Upload duration graph artifact
         if: ${{ github.event.inputs.graph_enabled == 'true' }}
         uses: actions/upload-artifact@v4
@@ -174,7 +166,6 @@ jobs:
           name: ${{ matrix.thingino-version }}-build.hist-duration
           path: |
             ~/output/${{ matrix.thingino-version }}/graphs/build.hist-duration.pdf
-
       - name: Upload full firmware artifact
         uses: actions/upload-artifact@v4
         with:
@@ -182,7 +173,6 @@ jobs:
           path: |
             ${{ env.FULL_FW }}
             ${{ env.FULL_FW_SHA }}
-
       - name: Upload update firmware artifact
         uses: actions/upload-artifact@v4
         with:
@@ -190,7 +180,6 @@ jobs:
           path: |
             ${{ env.UPDATE_FW }}
             ${{ env.UPDATE_FW_SHA }}
-
       - name: Upload full firmware to release
         if: github.event_name != 'pull_request'
         uses: softprops/action-gh-release@master
@@ -198,7 +187,6 @@ jobs:
           tag_name: ${{ env.TAG_NAME }}
           files: |
             ${{ env.FULL_FW }}
-
       - name: Upload update firmware to release
         if: github.event_name != 'pull_request'
         uses: softprops/action-gh-release@master
@@ -206,7 +194,6 @@ jobs:
           tag_name: ${{ env.UPD_TAG_NAME }}
           files: |
             ${{ env.UPDATE_FW }}
-
       - name: Upload checksum files for release
         if: github.event_name != 'pull_request'
         uses: softprops/action-gh-release@master
@@ -215,27 +202,26 @@ jobs:
           files: |
             ${{ env.UPDATE_FW_SHA }}
             ${{ env.FULL_FW_SHA }}
-
       - name: Send firmware completion notifications with binaries
         if: ${{ env.TG_DISABLED == 'false' && (env.FULL_FW || env.UPDATE_FW) }}
         run: |
           if [[ "${{ github.event.inputs.tg_scratch }}" == 'true' ]]; then
             TG_CHANNEL=${{ env.TG_CHANNEL_SCRATCH }}
           fi
+          TG_ESCAPED_TAG_NAME=$(echo "${TAG_NAME}" | sed 's/_/\\_/g')
           if [ -n "${{ env.FULL_FW }}" ]; then
-            TG_MSG="Commit: [${GIT_HASH}](https://github.com/${GITHUB_REPOSITORY}/commit/${GIT_HASH})\nBranch: [${GIT_BRANCH}](https://github.com/${GITHUB_REPOSITORY}/tree/${GIT_BRANCH})\nTag: [${TAG_NAME}](https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG_NAME})\nTime: ${TIME}\nJob: [${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})\n\n"
+            TG_MSG="Commit: [${GIT_HASH}](https://github.com/${GITHUB_REPOSITORY}/commit/${GIT_HASH})\nBranch: [${GIT_BRANCH}](https://github.com/${GITHUB_REPOSITORY}/tree/${GIT_BRANCH})\nTag: [${TG_ESCAPED_TAG_NAME}](https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG_NAME})\nTime: ${TIME}\nJob: [${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})\n\n"
             TG_HEADER=$(echo -e "${TG_MSG}\xE2\x9C\x85 GitHub Actions")
             HTTP_FULL=$(curl ${TG_OPTIONS} -H "Content-Type: multipart/form-data" -X POST https://api.telegram.org/bot${TG_TOKEN}/sendDocument -F parse_mode=MarkdownV2 -F chat_id=${TG_CHANNEL} -F caption="${TG_HEADER}" -F document=@${FULL_FW} -F disable_web_page_preview=true)
             echo "Telegram response Full Firmware: $HTTP_FULL"
           fi
-
+          TG_ESCAPED_UPD_TAG_NAME=$(echo "${UPD_TAG_NAME}" | sed 's/_/\\_/g')
           if [ -n "${{ env.UPDATE_FW }}" ]; then
-            TG_MSG="Commit: [${GIT_HASH}](https://github.com/${GITHUB_REPOSITORY}/commit/${GIT_HASH})\nBranch: [${GIT_BRANCH}](https://github.com/${GITHUB_REPOSITORY}/tree/${GIT_BRANCH})\nTag: [firmware\\_update](https://github.com/${GITHUB_REPOSITORY}/releases/tag/firmware\\_update)\nTime: ${TIME}\nJob: [${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})\n\n"
+            TG_MSG="Commit: [${GIT_HASH}](https://github.com/${GITHUB_REPOSITORY}/commit/${GIT_HASH})\nBranch: [${GIT_BRANCH}](https://github.com/${GITHUB_REPOSITORY}/tree/${GIT_BRANCH})\nTag: [${TG_ESCAPED_UPD_TAG_NAME}](https://github.com/${GITHUB_REPOSITORY}/releases/tag/firmware\\_update)\nTime: ${TIME}\nJob: [${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})\n\n"
             TG_HEADER=$(echo -e "${TG_MSG}\xE2\x9C\x85 GitHub Actions")
             HTTP_UPDATE=$(curl ${TG_OPTIONS} -H "Content-Type: multipart/form-data" -X POST https://api.telegram.org/bot${TG_TOKEN}/sendDocument -F parse_mode=MarkdownV2 -F chat_id=${TG_CHANNEL} -F caption="${TG_HEADER}" -F document=@${UPDATE_FW} -F disable_web_page_preview=true)
             echo "Telegram response Update Firmware: $HTTP_UPDATE"
           fi
-
       - name: Send error notification
         if: ${{ env.TG_DISABLED == 'false' && failure() }}
         run: |
@@ -243,13 +229,13 @@ jobs:
             TG_CHANNEL=${{ env.TG_CHANNEL_SCRATCH }}
           fi
           TG_ESCAPED_VERSION=$(echo "${{ matrix.thingino-version }}" | sed 's/_/\\_/g')
+          TG_ESCAPED_TAG_NAME=$(echo "${TAG_NAME}" | sed 's/_/\\_/g')
           TG_WARN="Error: ${TG_ESCAPED_VERSION}\n"
-          TG_MSG="Commit: [${GIT_HASH}](https://github.com/${GITHUB_REPOSITORY}/commit/${GIT_HASH})\nBranch: [${GIT_BRANCH}](https://github.com/${GITHUB_REPOSITORY}/tree/${GIT_BRANCH})\nTag: [${TAG_NAME}](https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG_NAME})\nJob: [${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})\n\n"
+          TG_MSG="Commit: [${GIT_HASH}](https://github.com/${GITHUB_REPOSITORY}/commit/${GIT_HASH})\nBranch: [${GIT_BRANCH}](https://github.com/${GITHUB_REPOSITORY}/tree/${GIT_BRANCH})\nTag: [${TG_ESCAPED_TAG_NAME}](https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG_NAME})\nJob: [${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})\n\n"
           TG_ICON="\xE2\x9A\xA0 GitHub Actions"
           TG_HEADER=$(echo -e ${TG_WARN}${TG_MSG}${TG_ICON})
           HTTP=$(curl ${TG_OPTIONS} -H "Content-Type: multipart/form-data" -X POST https://api.telegram.org/bot${TG_TOKEN}/sendMessage -F parse_mode=MarkdownV2 -F chat_id=${TG_CHANNEL} -F text="${TG_HEADER}" -F disable_web_page_preview=true)
           echo Telegram response: ${HTTP}
-
   notify-completion:
     needs: [buildroot, notify-begin]
     runs-on: ubuntu-latest
@@ -258,7 +244,6 @@ jobs:
       - name: Setup Environment
         run: |
           echo "TG_DISABLED=${{ github.event.inputs.tg_disabled || 'false' }}" >> $GITHUB_ENV
-
       - name: Send completion summary
         if: ${{ env.TG_DISABLED == 'false' }}
         run: |
@@ -270,7 +255,7 @@ jobs:
           ELAPSED=$((END_TIME - START_TIME))
           ELAPSED_MIN=$((ELAPSED / 60))
           ELAPSED_SEC=$((ELAPSED % 60))
-          TG_MSG="Firmware build completed:\nTotal elapsed time: ${ELAPSED_MIN}m ${ELAPSED_SEC}s\nJob: [${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})\n\n"
+          TG_MSG="Firmware\\-module build completed:\nTotal elapsed time: ${ELAPSED_MIN}m ${ELAPSED_SEC}s\nJob: [${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})\n\n"
           TG_ICON="\xF0\x9F\x9A\xA9 GitHub Actions"
           TG_HEADER=$(echo -e ${TG_MSG}${TG_ICON})
           HTTP=$(curl ${TG_OPTIONS} -H "Content-Type: multipart/form-data" -X POST https://api.telegram.org/bot${TG_TOKEN}/sendMessage -F parse_mode=MarkdownV2 -F chat_id=${TG_CHANNEL} -F text="${TG_HEADER}" -F disable_web_page_preview=true)
